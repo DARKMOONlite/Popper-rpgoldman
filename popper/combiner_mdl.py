@@ -13,11 +13,8 @@ from pysat.formula import IDPool
 from . import stats
 from . import logger
 from bitarray.util import subset, any_and, ones, zeros, count_and, count_or
-from . util import rule_is_recursive, prog_is_recursive, prog_has_invention, calc_prog_size, format_prog, reduce_prog, calc_rule_size, print_incomplete_solution
+from . util import rule_is_recursive, prog_is_recursive, prog_has_invention, calc_prog_size, format_prog, reduce_prog, calc_rule_size, print_incomplete_solution, mdl_score
 from . state import update_best_hypothesis
-
-POS_EXAMPLE_WEIGHT = 1
-NEG_EXAMPLE_WEIGHT = 1
 
 class SetCoverProgressPrinter(cp_model.CpSolverSolutionCallback):
     def __init__(self, rule_vars, fn_vars, fp_vars, num_pos, num_neg,
@@ -195,6 +192,9 @@ class CombinerMDL:
 
         incompatible = defaultdict(set)
 
+        # MDL cost weights: cost = a*size + b*fn + c*fp
+        a, b, c = self.settings.size_weight, self.settings.fn_weight, self.settings.fp_weight
+
         progs = list(self.saved_progs)
 
         for i in range(len(progs)):
@@ -203,7 +203,7 @@ class CombinerMDL:
             neg1 = self.coverage_neg[h1]
             size1, tp1, fp1 = self.scores[h1]
 
-            gain1 = tp1 - fp1 - size1
+            gain1 = b * tp1 - c * fp1 - a * size1
 
             for j in range(i + 1, len(progs)):
                 h2 = progs[j]
@@ -211,14 +211,14 @@ class CombinerMDL:
                 neg2 = self.coverage_neg[h2]
                 size2, tp2, fp2 = self.scores[h2]
 
-                gain2 = tp2 - fp2 - size2
+                gain2 = b * tp2 - c * fp2 - a * size2
 
                 # --- UNION COVERAGE ---
                 tp_union = count_or(pos1, pos2)
                 fp_union = count_or(neg1, neg2)
                 size_union = size1 + size2
 
-                gain_union = tp_union - fp_union - size_union
+                gain_union = b * tp_union - c * fp_union - a * size_union
 
                 # --- BASIC INCOMPATIBILITY CONDITION ---
                 if gain_union <= max(gain1, gain2):
@@ -229,16 +229,18 @@ class CombinerMDL:
         return incompatible
 
     def decide_whether_to_combine(self, prog, prog_size, test_result):
+        # MDL cost weights: cost = a*size + b*fn + c*fp
+        a, b, c = self.settings.size_weight, self.settings.fn_weight, self.settings.fp_weight
         pos_covered, neg_covered = test_result.pos_covered, test_result.neg_covered
         tp, fn, fp, tn =  test_result.tp, test_result.fn, test_result.fp, test_result.tn
         inconsistent = test_result.inconsistent
 
         best_mdl = self.state.best_hypothesis_mdl if self.state.best_hypothesis_mdl else float('inf')
-        if (fp+ prog_size) >= best_mdl:
-            print(fp + prog_size, best_mdl, format_prog(prog))
+        if (c * fp + a * prog_size) >= best_mdl:
+            print(c * fp + a * prog_size, best_mdl, format_prog(prog))
             assert(False)
         # IF A RULE COSTS MORE (SIZE + ERRORS) THAN THE POSITIVES IT COVERS, IT IS DEAD WEIGHT
-        if tp <= (fp + prog_size):
+        if b * tp <= (c * fp + a * prog_size):
             assert(False)
 
         local_delete = set()
@@ -276,7 +278,7 @@ class CombinerMDL:
                         continue
 
                     # @AC, what is this? is it sound?
-                    if (tp - fp - prog_size) <= (tp1 - fp1 - size1):
+                    if (b * tp - c * fp - a * prog_size) <= (b * tp1 - c * fp1 - a * size1):
                         ignore_this_prog = True
                         break
 
@@ -332,12 +334,12 @@ class CombinerMDL:
     def filter_combine_programs(self, to_combine_set):
         xs = self.saved_progs | to_combine_set
         min_sz = min(self.scores[prog][0] for prog in xs)
-        must_beat = self.state.best_hypothesis_mdl - min_sz
+        must_beat = self.state.best_hypothesis_mdl - self.settings.size_weight * min_sz
 
         to_delete = set()
         for prog_hash in xs:
             size, tp, fp = self.scores[prog_hash]
-            if fp + size >= must_beat:
+            if self.settings.fp_weight * fp + self.settings.size_weight * size >= must_beat:
                 to_delete.add(prog_hash)
                 continue
 
@@ -390,7 +392,7 @@ class CombinerMDL:
 
             # Soft clause: Reward the solver for NOT picking the rule (minimises size)
             soft_clauses.append([-k])
-            weights.append(size)
+            weights.append(self.settings.size_weight * size)
 
         # 2. ENCODE POSITIVE EXAMPLES (Minimise FN)
         for ex in range(num_pos):
@@ -411,7 +413,7 @@ class CombinerMDL:
 
             # Soft clause: Reward the solver for covering the positive example
             soft_clauses.append([pvar])
-            weights.append(POS_EXAMPLE_WEIGHT)
+            weights.append(self.settings.fn_weight)
 
         # 3. ENCODE NEGATIVE EXAMPLES (Minimise FP)
         for ex in range(num_neg):
@@ -422,7 +424,7 @@ class CombinerMDL:
 
             # Soft clause: Reward the solver for NOT covering the negative example
             soft_clauses.append([-nvar])
-            weights.append(NEG_EXAMPLE_WEIGHT)
+            weights.append(self.settings.fp_weight)
 
         # if trick:
         #     incompatible = self.build_incompatibility()
@@ -457,7 +459,7 @@ class CombinerMDL:
         fp = sum(1 for ex in range(num_neg) if model[N + num_pos + ex] > 0)
 
         # Calculate the actual MDL Score
-        mdl = (POS_EXAMPLE_WEIGHT * fn) + (NEG_EXAMPLE_WEIGHT * fp) + best_size
+        mdl = mdl_score(fn, fp, best_size, self.settings.fn_weight, self.settings.fp_weight, self.settings.size_weight)
         mdl_ = self.state.best_hypothesis_mdl if self.state.best_hypothesis_mdl else float('inf')
 
         # Ensure this new model is strictly better than the global best
@@ -490,6 +492,12 @@ class CombinerMDL:
 
         if not last_combine_stage:
             solver.parameters.max_time_in_seconds = self.settings.anytime_timeout
+        else:
+            # the final combine stage was previously unbounded; with a weighted MDL the cost bound
+            # is larger, so the exact proof of optimality can run long past the overall timeout.
+            # cap it by the time left in the overall budget (>=1s) so Popper always terminates -
+            # the progress callback keeps the best solution found so far.
+            solver.parameters.max_time_in_seconds = self.state.time_remaining(self.settings.timeout)
 
         printer = SetCoverProgressPrinter(
             rule_vars=rule_vars,
@@ -585,10 +593,12 @@ class CombinerMDL:
             for r_var in [rule_vars[k] for k in rules_covering_neg[j]]:
                 model.AddImplication(r_var, fp_vars[j])
 
+        # MDL cost weights: cost = a*size + b*fn + c*fp
+        a, b, c = self.settings.size_weight, self.settings.fn_weight, self.settings.fp_weight
         objective_terms = (
-            [rule_vars[k] * ruleid_to_size[k] for k in range(1, N + 1)]
-            + fn_vars
-            + fp_vars
+            [rule_vars[k] * (a * ruleid_to_size[k]) for k in range(1, N + 1)]
+            + [v * b for v in fn_vars]
+            + [v * c for v in fp_vars]
         )
         total_mdl_expr = cp_model.LinearExpr.Sum(objective_terms)
 
@@ -716,14 +726,14 @@ class CombinerMDL:
         for rule_id in rule_var:
             if rule_var[rule_id] is not None:
                 soft_clauses.append([-rule_var[rule_id]])
-                weights.append(ruleid_to_size[rule_id])
+                weights.append(self.settings.size_weight * ruleid_to_size[rule_id])
         for i in pos_index:
             soft_clauses.append([pos_example_covered_var[i]])
-            weights.append(POS_EXAMPLE_WEIGHT)
+            weights.append(self.settings.fn_weight)
 
         for i in neg_index:
             soft_clauses.append([-neg_example_covered_var[i]])
-            weights.append(NEG_EXAMPLE_WEIGHT)
+            weights.append(self.settings.fp_weight)
 
         # PRUNE INCONSISTENT
         for prog in self.inconsistent:
@@ -766,7 +776,7 @@ class CombinerMDL:
             size = sum([ruleid_to_size[rule_id] for rule_id in ruleid_to_size if model[rule_var[rule_id]-1] > 0])
 
             if self.state.best_hypothesis_score:
-                if mdl_ <= POS_EXAMPLE_WEIGHT * fn + NEG_EXAMPLE_WEIGHT * fp + size:
+                if mdl_ <= mdl_score(fn, fp, size, self.settings.fn_weight, self.settings.fp_weight, self.settings.size_weight):
                     break
 
             model_found = True
@@ -799,7 +809,7 @@ class CombinerMDL:
                 encoding.append(clause)
 
         best_prog = [ruleid_to_rule[k] for k in best_prog]
-        return best_prog, best_fn + best_fp + best_size
+        return best_prog, mdl_score(best_fn, best_fp, best_size, self.settings.fn_weight, self.settings.fp_weight, self.settings.size_weight)
 
     def greedy_upper_bound(self):
         covered_pos = zeros(self.tester.num_pos)
@@ -818,7 +828,7 @@ class CombinerMDL:
                 new_fp = count_and(~covered_neg, self.coverage_neg[h])
                 size, tp, fp = self.scores[h]
 
-                delta = size + new_fp - new_tp
+                delta = self.settings.size_weight * size + self.settings.fp_weight * new_fp - self.settings.fn_weight * new_tp
 
                 if best is None or delta < best_delta:
                     best = h
@@ -838,7 +848,7 @@ class CombinerMDL:
         fp = covered_neg.count(1)
 
         mdl_limit = self.state.best_hypothesis_mdl if self.state.best_hypothesis_mdl else float('inf')
-        prog_mdl = int(total_size + fp + fn)
+        prog_mdl = int(mdl_score(fn, fp, total_size, self.settings.fn_weight, self.settings.fp_weight, self.settings.size_weight))
 
         if prog_mdl >= mdl_limit:
             return False

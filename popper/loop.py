@@ -1,6 +1,6 @@
 import time
 from bitarray.util import ones
-from . util import format_rule, rule_is_recursive, prog_is_recursive, prog_has_invention, calc_prog_size, format_literal, GENERALISATION, SPECIALISATION, UNSAT, REDUNDANCY_CONSTRAINT1, REDUNDANCY_CONSTRAINT2, TMP_ANDY, BANISH, mdl_score, canonicalise, format_prog
+from . util import format_rule, rule_is_recursive, prog_is_recursive, prog_has_invention, calc_prog_size, format_literal, GENERALISATION, SPECIALISATION, UNSAT, REDUNDANCY_CONSTRAINT1, REDUNDANCY_CONSTRAINT2, TMP_ANDY, BANISH, mdl_score, ceil_div, canonicalise, format_prog
 from . tester import Tester
 from . bkcons import get_bk_cons
 from . unsat import UnsatCoreFinder
@@ -57,7 +57,7 @@ def popper(settings):
     noisy = settings.noisy
 
     if noisy:
-        initialise_noisy_best_hypothesis(state, num_pos, num_neg)
+        initialise_noisy_best_hypothesis(settings, state, num_pos, num_neg)
         build_constraints = build_constraints_noisy
         test_prog = tester.test_prog_noisy
     else:
@@ -253,6 +253,8 @@ def build_constraints_noisy(settings, tester, state, unsatcore_finder, allsatcor
     too_few_tp, too_many_fp = test_result.too_few_tp, test_result.too_many_fp
     num_pos, num_neg = tester.num_pos, tester.num_neg
     tp, fn, fp, tn = test_result.tp, test_result.fn, test_result.fp, test_result.tn
+    # MDL cost weights: cost = a*size + b*fn + c*fp
+    a, b, c = settings.size_weight, settings.fn_weight, settings.fp_weight
     # seen_hyp_spec, seen_hyp_gen = state.seen_hyp_spec, state.seen_hyp_gen
     new_cons = []
     pruned_more_general = False
@@ -286,7 +288,7 @@ def build_constraints_noisy(settings, tester, state, unsatcore_finder, allsatcor
         add_gen = True
 
     # if the program does not cover any positive examples, check whether it has an unsat core
-    if not has_invention and (tp < state.min_pos_coverage or tp <= prog_size):
+    if not has_invention and (tp < state.min_pos_coverage or b * tp <= a * prog_size):
         with stats.duration('find mucs'):
             cons_ = tuple(unsatcore_finder.explain_incomplete(prog))
             new_cons.extend(cons_)
@@ -301,11 +303,11 @@ def build_constraints_noisy(settings, tester, state, unsatcore_finder, allsatcor
             add_spec = True
             noisy_subsumed = True
 
-    if tp <= prog_size:
+    if b * tp <= a * prog_size:
         add_spec = True
 
     if not too_few_tp:
-        spec_size_ = min([tp, fp + prog_size])
+        spec_size_ = min([ceil_div(b * tp, a), prog_size + ceil_div(c * fp, a)])
         if spec_size_ <= prog_size:
             add_spec = True
         elif len(prog) == 1 and spec_size_ < settings.max_body + 1 and spec_size_ < state.max_literals:
@@ -314,13 +316,16 @@ def build_constraints_noisy(settings, tester, state, unsatcore_finder, allsatcor
             spec_size = spec_size_
 
     if too_few_tp or too_many_fp:
-        gen_size_ = fn + prog_size
+        # generalising can save at most b*fn by covering the remaining positives, worth a*extra literals
+        gen_size_ = prog_size + ceil_div(b * fn, a)
         if gen_size_ <= prog_size:
             add_gen = True
         if gen_size_ < state.max_literals:
             gen_size = gen_size_
     else:
-        gen_size_ = min([fn + prog_size, num_pos - fp, state.best_hypothesis_mdl - mdl + num_pos + prog_size])
+        gen_size_ = min([prog_size + ceil_div(b * fn, a),
+                         ceil_div(b * num_pos - c * fp, a),
+                         ceil_div(state.best_hypothesis_mdl - mdl + b * num_pos + a * prog_size, a)])
         if gen_size_ <= prog_size:
             add_gen = True
         if gen_size_ < state.max_literals:
@@ -365,7 +370,7 @@ def build_constraints_noisy(settings, tester, state, unsatcore_finder, allsatcor
     if not add_spec and not add_gen:
         new_cons.append((BANISH, prog))
 
-    add_to_combiner = (not too_few_tp) and (not too_many_fp) and (not is_recursive) and (not has_invention) and tp > prog_size + fp and fp + prog_size < state.best_hypothesis_mdl and (not noisy_subsumed)
+    add_to_combiner = (not too_few_tp) and (not too_many_fp) and (not is_recursive) and (not has_invention) and b * tp > a * prog_size + c * fp and c * fp + a * prog_size < state.best_hypothesis_mdl and (not noisy_subsumed)
 
     return new_cons, add_to_combiner
 
