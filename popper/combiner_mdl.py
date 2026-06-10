@@ -440,7 +440,7 @@ class CombinerMDL:
         #             if r1 < r2:
         #                 encoding.append([-r1, -r2])  # hard clause
 
-        if last_combine_stage or not self.settings.nuwls:
+        if not self.settings.nuwls:
             _, model = maxsat.exact_maxsat_solve(encoding, soft_clauses, weights)
         else:
             _, model = maxsat.anytime_maxsat_solve(encoding, soft_clauses, weights, self.settings.anytime_timeout)
