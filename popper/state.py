@@ -1,6 +1,6 @@
 from collections import defaultdict
 import time
-from . util import print_incomplete_solution, mdl_score
+from . util import print_incomplete_solution, mdl_score, ceil_div
 
 class SearchState:
     def __init__(self):
@@ -35,15 +35,15 @@ class SearchState:
         time_spent = time_now - self._start_time
         return max(int(timeout-time_spent), 1)
 
-def initialise_noisy_best_hypothesis(state, num_pos, num_neg):
+def initialise_noisy_best_hypothesis(settings, state, num_pos, num_neg):
     state.best_hypothesis_score = (0, num_pos, num_neg, 0)
-    state.best_hypothesis_mdl = num_pos
+    state.best_hypothesis_mdl = settings.fn_weight * num_pos
 
 def _update_search_bounds(settings, state, hypothesis_size, conf_matrix, mdl):
     _, fn, _, fp = conf_matrix
 
     if settings.noisy:
-        state.max_literals = mdl - 1
+        state.max_literals = ceil_div(mdl, settings.size_weight) - 1
         return
 
     if fp != 0 or fn != 0:
@@ -92,7 +92,7 @@ def update_best_hypothesis(settings, state, hypothesis, hypothesis_size, conf_ma
 
     mdl = None
     if settings.noisy:
-        mdl = mdl_score(fn, fp, hypothesis_size)
+        mdl = mdl_score(fn, fp, hypothesis_size, settings.fn_weight, settings.fp_weight, settings.size_weight)
 
     if not _is_better_hypothesis(settings, state, hypothesis_size, conf_matrix, mdl):
         return
