@@ -3,14 +3,14 @@
 
 Popper is an [inductive logic programming](https://arxiv.org/pdf/2008.07912.pdf) system. Popper learns logical rules from examples and background knowledge.
 
-Ask questions us on [Discord](https://discord.gg/Rv5mQCayAp) or email [Andrew Cropper](mailto:andrew.cropper@helsinki.fi).
+Ask questions on [Discord](https://discord.gg/Rv5mQCayAp) or email [Andrew Cropper](mailto:andrew.cropper@helsinki.fi).
 
 If you use Popper, please cite the paper [learning programs by learning from failures](https://arxiv.org/abs/2005.02259) (MLJ 2021).
 
 
 **Requirements**
-
-- GNU Coreutils `(brew install coreutils)`
+- [SWI-Prolog](https://github.com/SWI-Prolog/swipl-devel) (`brew install swi-prolog`)
+- GNU Coreutils (`brew install coreutils`)
 - [uv](https://github.com/astral-sh/uv) package manager (`brew install uv`)
 
 **Install and run**
@@ -75,7 +75,7 @@ Popper can learn from [noisy](https://arxiv.org/pdf/2308.09393.pdf) data with th
 **Solvers**
 
 Popper uses the [CPSAT](https://drops.dagstuhl.de/storage/00lipics/lipics-vol280-cp2023/LIPIcs.CP.2023.3/LIPIcs.CP.2023.3.pdf) solver by default for its combine stage.
-Popper also supports the [NuWLS](https://ojs.aaai.org/index.php/AAAI/article/view/25505) anytime MaxSAT sovler. You can download and compile this solver from the [MaxSAT 2023 evaluation](https://maxsat-evaluations.github.io/2023/descriptions.html) website. **We strongly recommend using  NuWLS** as it greatly improves the performance of Popper. To use them, ensure that the solver is available on your path.  See the [install solvers](solvers.md) file for help.
+Popper also supports the [NuWLS](https://ojs.aaai.org/index.php/AAAI/article/view/25505) anytime MaxSAT solver. You can download and compile this solver from the [MaxSAT 2023 evaluation](https://maxsat-evaluations.github.io/2023/descriptions.html) website. **We strongly recommend using  NuWLS** as it greatly improves the performance of Popper. To use them, ensure that the solver is available on your path.  See the [install solvers](solvers.md) file for help.
 
 
 **Recursion**
