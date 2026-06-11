@@ -87,7 +87,7 @@ def popper(settings):
         # if non-separable hypothesis is perfect, stop
         if not test_result.inconsistent and test_result.tp == num_pos:
             update_best_hypothesis(settings, state, prog, prog_size, (num_pos, 0, num_neg, 0))
-            break
+            return state.best_hypothesis, state.best_hypothesis_score
 
         # BUILD CONSTRAINTS
         cons, add_to_combiner = build_constraints(settings, tester, state, unsatcore_finder, allsatcore_finder, subsumer, prog, prog_size, combiner, test_result)

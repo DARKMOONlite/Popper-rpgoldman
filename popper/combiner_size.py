@@ -14,23 +14,30 @@ from . util import rule_is_recursive, prog_is_recursive, prog_has_invention, cal
 
 class SetCoverProgressPrinter(cp_model.CpSolverSolutionCallback):
     def __init__(self, rule_vars, num_pos, num_neg,
-                 ruleid_to_rule, settings, state):
+                 ruleid_to_rule, ruleid_to_size, settings, state, covered_vars=None):
         cp_model.CpSolverSolutionCallback.__init__(self)
         self.rule_vars = rule_vars
         self.num_pos = num_pos
         self.num_neg = num_neg
         self.ruleid_to_rule = ruleid_to_rule
+        self.ruleid_to_size = ruleid_to_size
         self.settings = settings
         self.state = state
+        self.covered_vars = covered_vars
 
     def on_solution_callback(self):
         hypothesis = [self.ruleid_to_rule[k] for k, var in self.rule_vars.items() if self.Value(var)]
-        current_hypothesis_size = int(self.ObjectiveValue())
+        current_hypothesis_size = sum(
+            self.ruleid_to_size[k] for k, var in self.rule_vars.items() if self.Value(var)
+        )
 
-        # 2. Extract Error Counts
-        fn_count = 0
+        if self.covered_vars is not None:
+            fn_count = sum(1 for cvar in self.covered_vars.values() if not self.Value(cvar))
+            tp_count = self.num_pos - fn_count
+        else:
+            fn_count = 0
+            tp_count = self.num_pos
         fp_count = 0
-        tp_count = self.num_pos
         tn_count = self.num_neg
 
         update_best_hypothesis(
@@ -41,11 +48,8 @@ class SetCoverProgressPrinter(cp_model.CpSolverSolutionCallback):
             (tp_count, fn_count, tn_count, fp_count),
         )
 
-        # print('MOOOOO')
-
-
 class AllOptPrinter(cp_model.CpSolverSolutionCallback):
-    def __init__(self, rule_vars, ruleid_to_rule, num_pos, num_neg, settings, state):
+    def __init__(self, rule_vars, ruleid_to_rule, num_pos, num_neg, settings, state, covered_vars=None):
         cp_model.CpSolverSolutionCallback.__init__(self)
         self.rule_vars = rule_vars
         self.ruleid_to_rule = ruleid_to_rule
@@ -53,24 +57,26 @@ class AllOptPrinter(cp_model.CpSolverSolutionCallback):
         self.num_neg=num_neg
         self.settings = settings
         self.best_hash = hash(frozenset(state.best_hypothesis))
+        self.covered_vars = covered_vars
 
     def on_solution_callback(self):
         hypothesis = frozenset([self.ruleid_to_rule[k] for k, var in self.rule_vars.items() if self.Value(var)])
-        # current_hypothesis_size = int(self.ObjectiveValue())
         current_hypothesis_size = calc_prog_size(hypothesis)
 
         if hash(hypothesis) == self.best_hash:
             return
 
-        # 2. Extract Error Counts
-        fn_count = 0
+        if self.covered_vars is not None:
+            fn_count = sum(1 for cvar in self.covered_vars.values() if not self.Value(cvar))
+            tp_count = self.num_pos - fn_count
+        else:
+            fn_count = 0
+            tp_count = self.num_pos
         fp_count = 0
-        tp_count = self.num_pos
         tn_count = self.num_neg
         print('OPTTTTTTT')
 
         print_incomplete_solution(hypothesis, current_hypothesis_size, (tp_count, fn_count, tn_count, fp_count), self.settings, self.settings.noisy)
-
 
 class CombinerSize:
 
@@ -151,7 +157,10 @@ class CombinerSize:
         return x
     
     def combine(self, size_change, last_combine_stage=False):
-        call_combine = len(self.to_combine) > 0 and self.state.solution_found and (len(self.to_combine) >= self.settings.batch_size or size_change)
+        has_progs = len(self.to_combine) > 0
+        worth_combining = self.state.solution_found or last_combine_stage
+        ready = last_combine_stage or len(self.to_combine) >= self.settings.batch_size or size_change
+        call_combine = has_progs and worth_combining and ready
         if call_combine:
             return self._combine(last_combine_stage)
         return False
@@ -190,15 +199,14 @@ class CombinerSize:
     # maxsat code to find a good combination of rules
     # assumes no recursion to make it easier to understand
     def find_combination_norec_maxsat(self, last_combine_stage=False):
-        encoding = []
-
+        hard_clauses = []
         ruleid_to_rule = {}
         ruleid_to_size = {}
 
         # Maps positive example index -> list of SAT variables covering it
         rules_covering_pos_example = defaultdict(list)
 
-        weights = []
+        size_weights = []
         rule_soft_lits = []
 
         # k acts as both the rule ID *and* the exact PySAT variable (starting at 1)
@@ -208,81 +216,109 @@ class CombinerSize:
             size = calc_rule_size(rule)
             ruleid_to_rule[k] = rule
             ruleid_to_size[k] = size
-
-            # Map coverage directly to the rule's SAT variable (k)
             for ex in self.coverage_pos[prog_hash].search(1):
                 rules_covering_pos_example[ex].append(k)
-
-            # soft constraints
-            # why -k?
             rule_soft_lits.append(-k)
-            weights.append(size)
+            size_weights.append(size)
 
-        # HARD CONSTRAINT
-        # solver must cover every positive example
-        for ex in range(self.tester.num_pos):
-            cov_clause = rules_covering_pos_example.get(ex)
+        max_total_size = sum(ruleid_to_size.values()) if ruleid_to_size else 1
+        # M > max possible total size so that minimising FN always dominates minimising size
+        M = max_total_size + 1
 
-            if cov_clause is None:
-                continue
+        soft_clauses = []
+        weights = []
 
-            # Optimisation: If only one rule covers this example, it's essential.
-            if len(cov_clause) == 1:
-                encoding.append([cov_clause[0]])
-            else:
-                encoding.append(cov_clause)
+        if self.state.solution_found:
+            # HARD coverage: every positive example must be covered
+            for ex in range(self.tester.num_pos):
+                cov_clause = rules_covering_pos_example.get(ex)
+                if cov_clause is None:
+                    continue
+                if len(cov_clause) == 1:
+                    hard_clauses.append([cov_clause[0]])
+                else:
+                    hard_clauses.append(cov_clause)
+        else:
+            # SOFT coverage with weight M: penalise each uncovered example by M
+            for ex in range(self.tester.num_pos):
+                cov_clause = rules_covering_pos_example.get(ex)
+                if cov_clause is None:
+                    continue
+                soft_clauses.append(cov_clause)
+                weights.append(M)
 
-        # SOFT CONSTRAINT: Minimise the total size of the selected rules
-        # The base solver expects a list of clauses, so we wrap each literal in a list
-        soft_clauses = [[lit] for lit in rule_soft_lits]
+        # SOFT: minimise total size of selected rules
+        soft_clauses += [[lit] for lit in rule_soft_lits]
+        weights += size_weights
 
         if last_combine_stage or not self.settings.nuwls:
-            # call the exact maxsat solver
-            _, model = maxsat.exact_maxsat_solve(encoding, soft_clauses, weights)
+            _, model = maxsat.exact_maxsat_solve(hard_clauses, soft_clauses, weights)
         else:
-            # call nuwls
-            _, model = maxsat.anytime_maxsat_solve(encoding, soft_clauses, weights, self.settings.anytime_timeout)
+            _, model = maxsat.anytime_maxsat_solve(hard_clauses, soft_clauses, weights, self.settings.anytime_timeout)
 
         if model is None:
             return [], False
 
-        # the size of the model the sat solver just found
-        # best_size = solver.ObjectiveValue()
-        best_size = sum(ruleid_to_size[var] for var in model if var > 0)
+        selected = {var for var in model if var > 0}
+        best_size = sum(ruleid_to_size[k] for k in selected)
 
-        # check new model is strictly better than global best
-        size_ = self.state.best_hypothesis_size if self.state.best_hypothesis_score else float('inf')
-        if size_ <= best_size:
-            return [], False
+        if self.state.solution_found:
+            size_ = self.state.best_hypothesis_size if self.state.best_hypothesis_score else float('inf')
+            if size_ <= best_size:
+                return [], False
+        else:
+            best_fn = sum(
+                1 for ex in range(self.tester.num_pos)
+                if not any(k in selected for k in rules_covering_pos_example.get(ex, []))
+            )
+            if self.state.best_hypothesis_score:
+                _, cur_fn, _, _ = self.state.best_hypothesis_score
+                cur_size = self.state.best_hypothesis_size or float('inf')
+                if (best_fn, best_size) >= (cur_fn, cur_size):
+                    return [], False
 
-        # get the rules and return them
-        best_prog = [ruleid_to_rule[var] for var in model if var > 0]
-
+        best_prog = [ruleid_to_rule[k] for k in selected]
         return best_prog, best_size
 
     def find_combination_norec_cp(self, last_combine_stage=False):
-        cp_mod, rule_vars, ruleid_to_rule, ruleid_to_size, total_size_expr = self._build_set_cover_model()
-
-        current_best_size = self.state.best_hypothesis_size if self.state.best_hypothesis_score else float('inf')
-        if current_best_size != float('inf'):
-            cp_mod.Add(total_size_expr < int(current_best_size))
-
-        cp_mod.Minimize(total_size_expr)
+        hard_coverage = self.state.solution_found
+        cp_mod, rule_vars, ruleid_to_rule, ruleid_to_size, total_size_expr, covered_vars = \
+            self._build_set_cover_model(hard_coverage=hard_coverage)
 
         solver = cp_model.CpSolver()
         solver.parameters.num_search_workers = 1
         solver.parameters.linearization_level = 2
-
         if not last_combine_stage:
             solver.parameters.max_time_in_seconds = float(self.settings.anytime_timeout)
+
+        if hard_coverage:
+            current_best_size = self.state.best_hypothesis_size if self.state.best_hypothesis_score else float('inf')
+            if current_best_size != float('inf'):
+                cp_mod.Add(total_size_expr < int(current_best_size))
+            cp_mod.Minimize(total_size_expr)
+        else:
+            # Lexicographic (FN, size) minimisation via a single weighted objective.
+            # M > max possible total size ensures minimising FN always takes priority.
+            max_total_size = sum(ruleid_to_size.values()) if ruleid_to_size else 1
+            M = max_total_size + 1
+            coverage_sum = sum(covered_vars[ex] for ex in range(self.tester.num_pos))
+            fn_expr = self.tester.num_pos - coverage_sum
+            weighted_obj = M * fn_expr + total_size_expr
+            if self.state.best_hypothesis_score:
+                _, best_fn, _, _ = self.state.best_hypothesis_score
+                best_size = self.state.best_hypothesis_size or max_total_size
+                cp_mod.Add(weighted_obj < int(M * best_fn + best_size))
+            cp_mod.Minimize(weighted_obj)
 
         printer = SetCoverProgressPrinter(
             rule_vars=rule_vars,
             num_pos=self.tester.num_pos,
             num_neg=self.tester.num_neg,
             ruleid_to_rule=ruleid_to_rule,
+            ruleid_to_size=ruleid_to_size,
             settings=self.settings,
             state=self.state,
+            covered_vars=covered_vars if not hard_coverage else None,
         )
 
         status = solver.Solve(cp_mod, printer)
@@ -290,22 +326,41 @@ class CombinerSize:
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return [], False
 
-        best_size = int(solver.ObjectiveValue())
-        if current_best_size <= best_size:
-            return [], False
+        best_size = sum(ruleid_to_size[k] for k, var in rule_vars.items() if solver.Value(var))
+
+        if hard_coverage:
+            current_best_size = self.state.best_hypothesis_size if self.state.best_hypothesis_score else float('inf')
+            if current_best_size <= best_size:
+                return [], False
+        else:
+            best_fn = sum(1 for ex, cvar in covered_vars.items() if not solver.Value(cvar))
+            if self.state.best_hypothesis_score:
+                _, cur_fn, _, _ = self.state.best_hypothesis_score
+                cur_size = self.state.best_hypothesis_size or float('inf')
+                if (best_fn, best_size) >= (cur_fn, cur_size):
+                    return [], False
 
         best_prog = [ruleid_to_rule[k] for k, var in rule_vars.items() if solver.Value(var)]
         return best_prog, best_size
 
 
     def _enumerate_all_optimal(self):
-        optimal_size = self.state.best_hypothesis_size if self.state.best_hypothesis_score else float('inf')
-        if optimal_size == float('inf'):
-            assert(False)
+        if not self.state.best_hypothesis_score:
+            assert False
 
-        cp_mod, rule_vars, ruleid_to_rule, ruleid_to_size, total_size_expr = self._build_set_cover_model()
+        hard_coverage = self.state.solution_found
+        cp_mod, rule_vars, ruleid_to_rule, ruleid_to_size, total_size_expr, covered_vars = \
+            self._build_set_cover_model(hard_coverage=hard_coverage)
 
-        cp_mod.Add(total_size_expr == optimal_size)
+        optimal_size = self.state.best_hypothesis_size
+        if hard_coverage:
+            cp_mod.Add(total_size_expr == int(optimal_size))
+        else:
+            _, optimal_fn, _, _ = self.state.best_hypothesis_score
+            coverage_sum = sum(covered_vars[ex] for ex in range(self.tester.num_pos))
+            fn_expr = self.tester.num_pos - coverage_sum
+            cp_mod.Add(fn_expr == int(optimal_fn))
+            cp_mod.Add(total_size_expr == int(optimal_size))
 
         solver = cp_model.CpSolver()
         solver.parameters.num_search_workers = 1
@@ -319,6 +374,7 @@ class CombinerSize:
             num_neg=self.tester.num_neg,
             settings=self.settings,
             state=self.state,
+            covered_vars=covered_vars if not hard_coverage else None,
         )
 
         status = solver.Solve(cp_mod, printer)
@@ -327,16 +383,20 @@ class CombinerSize:
             return [], False
 
         best_prog = [ruleid_to_rule[k] for k, var in rule_vars.items() if solver.Value(var)]
-        return best_prog, solver.ObjectiveValue()
+        return best_prog, optimal_size
 
+    def _build_set_cover_model(self, hard_coverage=True):
+        """Builds the CP-SAT model and returns it along with all the supporting data structures.
 
-    def _build_set_cover_model(self):
-        """Builds the CP-SAT model and returns it along with all the supporting data structures."""
+        When hard_coverage=False, each example gets a covered_var (BoolVar) instead of a hard
+        constraint, so the solver can choose to leave examples uncovered at a penalty.
+        """
         cp_mod = cp_model.CpModel()
         ruleid_to_rule = {}
         ruleid_to_size = {}
         rules_covering_pos_example = defaultdict(list)
         rule_vars = {}
+        covered_vars = {}
 
         for k, prog_hash in enumerate(self.saved_progs, start=1):
             prog = self.prog_lookup[prog_hash]
@@ -349,17 +409,29 @@ class CombinerSize:
                 rules_covering_pos_example[ex].append(k)
 
         for ex in range(self.tester.num_pos):
-            cov_clause = rules_covering_pos_example.get(ex)
-            if cov_clause is None:
-                continue
-            if len(cov_clause) == 1:
-                cp_mod.Add(rule_vars[cov_clause[0]] == 1)
+            cov_clause = rules_covering_pos_example.get(ex, [])
+            if hard_coverage:
+                if not cov_clause:
+                    continue
+                if len(cov_clause) == 1:
+                    cp_mod.Add(rule_vars[cov_clause[0]] == 1)
+                else:
+                    cp_mod.AddBoolOr([rule_vars[k] for k in cov_clause])
             else:
-                cp_mod.AddBoolOr([rule_vars[k] for k in cov_clause])
+                covered_var = cp_mod.NewBoolVar(f'covered_{ex}')
+                covered_vars[ex] = covered_var
+                if cov_clause:
+                    # covered_var can only be 1 if at least one covering rule is selected
+                    cp_mod.AddBoolOr([rule_vars[k] for k in cov_clause] + [covered_var.Not()])
+                    # if any covering rule is selected, covered_var must be 1
+                    for k in cov_clause:
+                        cp_mod.AddImplication(rule_vars[k], covered_var)
+                else:
+                    cp_mod.Add(covered_var == 0)
 
         total_size_expr = sum(rule_vars[k] * ruleid_to_size[k] for k in rule_vars)
 
-        return cp_mod, rule_vars, ruleid_to_rule, ruleid_to_size, total_size_expr
+        return cp_mod, rule_vars, ruleid_to_rule, ruleid_to_size, total_size_expr, covered_vars
 
     # GARBAGE AND NEEDS REFACTORING
     def find_combination(self, last_combine_stage=False):
@@ -530,11 +602,24 @@ class CombinerSize:
             fp = neg_covered.count(1)
             tn = self.tester.num_neg - fp
             fn = self.tester.num_pos - tp
-        else:
+        elif self.state.solution_found:
             tp = self.tester.num_pos
             fp = 0
             tn = self.tester.num_neg
             fn = 0
+        else:
+            # Imperfect solution: compute actual coverage from saved per-rule coverage data
+            rule_to_coverage = {next(iter(self.prog_lookup[ph])): self.coverage_pos[ph]
+                                 for ph in self.saved_progs}
+            combined = bitarray(self.tester.num_pos)
+            combined.setall(0)
+            for rule in new_solution:
+                if rule in rule_to_coverage:
+                    combined |= rule_to_coverage[rule]
+            tp = combined.count(1)
+            fn = self.tester.num_pos - tp
+            fp = 0
+            tn = self.tester.num_neg
 
         update_best_hypothesis(self.settings, self.state, new_solution, size, (tp, fn, tn, fp))
 
