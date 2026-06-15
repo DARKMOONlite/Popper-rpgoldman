@@ -1,58 +1,57 @@
-
 max_vars(7).
-max_body(20).
 
-non_datalog.
-
-:- not body_var(_,1).
-:- not body_var(_,2).
-
-
-head_pred(out,3).
-body_pred(in,3).
-body_pred(my_succ,2).
 body_pred(add,3).
-body_pred(lt,2).
+body_pred(c0, 1).
+body_pred(c1, 1).
+body_pred(c2, 1).
+body_pred(c3, 1).
+body_pred(c4, 1).
+body_pred(c5, 1).
+body_pred(c6, 1).
+body_pred(c7, 1).
+body_pred(c8, 1).
+body_pred(c9, 1).
 body_pred(empty,2).
-body_pred(C,1):-constant(C,_).
-
-constant(v0, value).
-constant(v1, value).
-constant(v2, value).
-constant(v3, value).
-constant(v4, value).
-constant(v5, value).
-constant(v6, value).
-constant(v7, value).
-constant(v8, value).
-constant(v9, value).
-
-constant(c0, position).
-constant(c1, position).
-constant(c2, position).
-constant(c3, position).
-constant(c4, position).
-constant(c5, position).
-constant(c6, position).
-constant(c7, position).
-constant(c8, position).
-constant(c9, position).
-
-type(empty,(ex,position)).
-type(out,(ex,position,value)).
-type(in,(ex,position,value)).
-type(my_succ,(position,position)).
+body_pred(in,3).
+body_pred(lt,2).
+body_pred(my_succ,2).
+body_pred(v0, 1).
+body_pred(v1, 1).
+body_pred(v2, 1).
+body_pred(v3, 1).
+body_pred(v4, 1).
+body_pred(v5, 1).
+body_pred(v6, 1).
+body_pred(v7, 1).
+body_pred(v8, 1).
+body_pred(v9, 1).
+head_pred(out,3).
 type(add,(position,position,position)).
+type(c0, (position,)).
+type(c1, (position,)).
+type(c2, (position,)).
+type(c3, (position,)).
+type(c4, (position,)).
+type(c5, (position,)).
+type(c6, (position,)).
+type(c7, (position,)).
+type(c8, (position,)).
+type(c9, (position,)).
+type(empty,(ex,position)).
+type(in,(ex,position,value)).
 type(lt,(position,position)).
-type(C,(T,)):- constant(C,T).
+type(my_succ,(position,position)).
+type(out,(ex,position,value)).
+type(v0, (value,)).
+type(v1, (value,)).
+type(v2, (value,)).
+type(v3, (value,)).
+type(v4, (value,)).
+type(v5, (value,)).
+type(v6, (value,)).
+type(v7, (value,)).
+type(v8, (value,)).
+type(v9, (value,)).
 
-%% %% BECAUSE WE DO NOT LEARN FROM INTERPRETATIONS
-bad_body(in, Vars):-
-    vars(_, Vars),
-    Vars = (V0,_,_),
-    V0 != 0.
-
-bad_body(empty, Vars):-
-    vars(_, Vars),
-    Vars = (V0,_),
-    V0 != 0.
+%% BECAUSE WE DO NOT LEARN FROM INTERPRETATIONS
+:- clause(C), #count{V : var_type(C,V,ex)} != 1.

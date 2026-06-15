@@ -32,6 +32,4 @@ type(c_c,(action,)).
 type(not_my_true,(ex,prop)).
 
 %% BECAUSE WE DO NOT LEARN FROM INTERPRETATIONS
-:-
-    clause(C),
-    #count{V : var_type(C,V,ex)} != 1.
+:- clause(C), #count{V : var_type(C,V,ex)} != 1.
