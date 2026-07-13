@@ -89,6 +89,8 @@ def popper(settings):
             update_best_hypothesis(settings, state, prog, prog_size, (num_pos, 0, num_neg, 0))
             return state.best_hypothesis, state.best_hypothesis_score
 
+        max_literals_before = state.max_literals
+
         # BUILD CONSTRAINTS
         cons, add_to_combiner = build_constraints(settings, tester, state, unsatcore_finder, allsatcore_finder, subsumer, prog, prog_size, combiner, test_result)
 
@@ -117,7 +119,7 @@ def popper(settings):
             new_hyp_found = combiner.combine(size_change)
 
         # IF NEW HYPOTHESIS
-        if new_hyp_found:
+        if new_hyp_found or state.max_literals < max_literals_before:
             
             # # AC: TRY TO REFACTOR OUT
             # if noisy:
