@@ -25,6 +25,4 @@ type(c_onecoin,(cell_value,)).
 type(c_twocoins,(cell_value,)).
 
 %% BECAUSE WE DO NOT LEARN FROM INTERPRETATIONS
-:-
-    clause(C),
-    #count{V : var_type(C,V,ex)} != 1.
+:- clause(C), #count{V : var_type(C,V,ex)} != 1.

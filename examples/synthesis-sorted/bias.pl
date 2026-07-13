@@ -4,7 +4,7 @@
 
 %% stronger bia to make the example quicker to run
 max_vars(5).
-max_body(5).
+%% max_body(5).
 
 enable_recursion.
 

@@ -2,108 +2,173 @@
 %% Andrew Cropper, Richard Evans, Mark Law: Inductive general game playing. Mach. Learn. 109(7): 1393-1434 (2020)
 %% https://arxiv.org/pdf/1906.09627.pdf
 
-constant(agent_robot, agent).
-constant(mypos_1, mypos).
-constant(mypos_2, mypos).
-constant(mypos_3, mypos).
-constant(cell_type_4, cell_type).
-constant(cell_type_5, cell_type).
-constant(cell_type_6, cell_type).
-constant(cell_type_7, cell_type).
-constant(cell_type_8, cell_type).
-constant(cell_type_b, cell_type).
-constant(time_step_0, time_step).
-constant(time_step_9, time_step).
-constant(time_step_10, time_step).
-constant(time_step_11, time_step).
-constant(time_step_12, time_step).
-constant(time_step_13, time_step).
-constant(time_step_14, time_step).
-constant(time_step_15, time_step).
-constant(time_step_16, time_step).
-constant(time_step_17, time_step).
-constant(time_step_18, time_step).
-constant(time_step_19, time_step).
-constant(time_step_20, time_step).
-constant(time_step_21, time_step).
-constant(time_step_22, time_step).
-constant(time_step_23, time_step).
-constant(time_step_24, time_step).
-constant(time_step_25, time_step).
-constant(time_step_26, time_step).
-constant(time_step_27, time_step).
-constant(time_step_28, time_step).
-constant(time_step_29, time_step).
-constant(time_step_30, time_step).
-constant(time_step_31, time_step).
-constant(time_step_32, time_step).
-constant(time_step_33, time_step).
-constant(time_step_34, time_step).
-constant(time_step_35, time_step).
-constant(time_step_36, time_step).
-constant(time_step_37, time_step).
-constant(time_step_38, time_step).
-constant(time_step_39, time_step).
-constant(time_step_40, time_step).
-constant(time_step_41, time_step).
-constant(time_step_42, time_step).
-constant(time_step_43, time_step).
-constant(time_step_44, time_step).
-constant(time_step_45, time_step).
-constant(time_step_46, time_step).
-constant(time_step_47, time_step).
-constant(time_step_48, time_step).
-constant(time_step_49, time_step).
-constant(time_step_50, time_step).
-constant(score_int_60, score_int).
-constant(score_int_62, score_int).
-constant(score_int_64, score_int).
-constant(score_int_66, score_int).
-constant(score_int_68, score_int).
-constant(score_int_70, score_int).
-constant(score_int_72, score_int).
-constant(score_int_74, score_int).
-constant(score_int_76, score_int).
-constant(score_int_78, score_int).
-constant(score_int_80, score_int).
-constant(score_int_82, score_int).
-constant(score_int_84, score_int).
-constant(score_int_86, score_int).
-constant(score_int_88, score_int).
-constant(score_int_90, score_int).
-constant(score_int_92, score_int).
-constant(score_int_94, score_int).
-constant(score_int_96, score_int).
-constant(score_int_98, score_int).
-constant(score_int_100, score_int).
-head_pred(legal_move,4).
-body_pred(true_cell,4).
-body_pred(true_step,2).
-body_pred(input_move,3).
-body_pred(role,1).
+body_pred(agent_robot, 1).
+body_pred(cell_type_4, 1).
+body_pred(cell_type_5, 1).
+body_pred(cell_type_6, 1).
+body_pred(cell_type_7, 1).
+body_pred(cell_type_8, 1).
+body_pred(cell_type_b, 1).
 body_pred(index,1).
-body_pred(succ,2).
+body_pred(input_move,3).
+body_pred(mypos_1, 1).
+body_pred(mypos_2, 1).
+body_pred(mypos_3, 1).
+body_pred(role,1).
+body_pred(score_int_100, 1).
+body_pred(score_int_60, 1).
+body_pred(score_int_62, 1).
+body_pred(score_int_64, 1).
+body_pred(score_int_66, 1).
+body_pred(score_int_68, 1).
+body_pred(score_int_70, 1).
+body_pred(score_int_72, 1).
+body_pred(score_int_74, 1).
+body_pred(score_int_76, 1).
+body_pred(score_int_78, 1).
+body_pred(score_int_80, 1).
+body_pred(score_int_82, 1).
+body_pred(score_int_84, 1).
+body_pred(score_int_86, 1).
+body_pred(score_int_88, 1).
+body_pred(score_int_90, 1).
+body_pred(score_int_92, 1).
+body_pred(score_int_94, 1).
+body_pred(score_int_96, 1).
+body_pred(score_int_98, 1).
 body_pred(scoremap,2).
+body_pred(succ,2).
 body_pred(successor,2).
 body_pred(tile,1).
-
-type(true_cell,(ex,mypos,mypos,cell_type)).
-type(true_step,(ex,time_step)).
-type(legal_move,(ex,agent,mypos,mypos)).
-type(input_move,(agent,mypos,mypos)).
-type(role,(agent,)).
+body_pred(time_step_0, 1).
+body_pred(time_step_10, 1).
+body_pred(time_step_11, 1).
+body_pred(time_step_12, 1).
+body_pred(time_step_13, 1).
+body_pred(time_step_14, 1).
+body_pred(time_step_15, 1).
+body_pred(time_step_16, 1).
+body_pred(time_step_17, 1).
+body_pred(time_step_18, 1).
+body_pred(time_step_19, 1).
+body_pred(time_step_20, 1).
+body_pred(time_step_21, 1).
+body_pred(time_step_22, 1).
+body_pred(time_step_23, 1).
+body_pred(time_step_24, 1).
+body_pred(time_step_25, 1).
+body_pred(time_step_26, 1).
+body_pred(time_step_27, 1).
+body_pred(time_step_28, 1).
+body_pred(time_step_29, 1).
+body_pred(time_step_30, 1).
+body_pred(time_step_31, 1).
+body_pred(time_step_32, 1).
+body_pred(time_step_33, 1).
+body_pred(time_step_34, 1).
+body_pred(time_step_35, 1).
+body_pred(time_step_36, 1).
+body_pred(time_step_37, 1).
+body_pred(time_step_38, 1).
+body_pred(time_step_39, 1).
+body_pred(time_step_40, 1).
+body_pred(time_step_41, 1).
+body_pred(time_step_42, 1).
+body_pred(time_step_43, 1).
+body_pred(time_step_44, 1).
+body_pred(time_step_45, 1).
+body_pred(time_step_46, 1).
+body_pred(time_step_47, 1).
+body_pred(time_step_48, 1).
+body_pred(time_step_49, 1).
+body_pred(time_step_50, 1).
+body_pred(time_step_9, 1).
+body_pred(true_cell,4).
+body_pred(true_step,2).
+head_pred(legal_move,4).
+type(agent_robot, (agent,)).
+type(cell_type_4, (cell_type,)).
+type(cell_type_5, (cell_type,)).
+type(cell_type_6, (cell_type,)).
+type(cell_type_7, (cell_type,)).
+type(cell_type_8, (cell_type,)).
+type(cell_type_b, (cell_type,)).
 type(index,(mypos,)).
-type(succ,(mypos,mypos)).
+type(input_move,(agent,mypos,mypos)).
+type(legal_move,(ex,agent,mypos,mypos)).
+type(mypos_1, (mypos,)).
+type(mypos_2, (mypos,)).
+type(mypos_3, (mypos,)).
+type(role,(agent,)).
+type(score_int_100, (score_int,)).
+type(score_int_60, (score_int,)).
+type(score_int_62, (score_int,)).
+type(score_int_64, (score_int,)).
+type(score_int_66, (score_int,)).
+type(score_int_68, (score_int,)).
+type(score_int_70, (score_int,)).
+type(score_int_72, (score_int,)).
+type(score_int_74, (score_int,)).
+type(score_int_76, (score_int,)).
+type(score_int_78, (score_int,)).
+type(score_int_80, (score_int,)).
+type(score_int_82, (score_int,)).
+type(score_int_84, (score_int,)).
+type(score_int_86, (score_int,)).
+type(score_int_88, (score_int,)).
+type(score_int_90, (score_int,)).
+type(score_int_92, (score_int,)).
+type(score_int_94, (score_int,)).
+type(score_int_96, (score_int,)).
+type(score_int_98, (score_int,)).
 type(scoremap,(time_step,score_int)).
+type(succ,(mypos,mypos)).
 type(successor,(time_step,time_step)).
 type(tile,(cell_type,)).
+type(time_step_0, (time_step,)).
+type(time_step_10, (time_step,)).
+type(time_step_11, (time_step,)).
+type(time_step_12, (time_step,)).
+type(time_step_13, (time_step,)).
+type(time_step_14, (time_step,)).
+type(time_step_15, (time_step,)).
+type(time_step_16, (time_step,)).
+type(time_step_17, (time_step,)).
+type(time_step_18, (time_step,)).
+type(time_step_19, (time_step,)).
+type(time_step_20, (time_step,)).
+type(time_step_21, (time_step,)).
+type(time_step_22, (time_step,)).
+type(time_step_23, (time_step,)).
+type(time_step_24, (time_step,)).
+type(time_step_25, (time_step,)).
+type(time_step_26, (time_step,)).
+type(time_step_27, (time_step,)).
+type(time_step_28, (time_step,)).
+type(time_step_29, (time_step,)).
+type(time_step_30, (time_step,)).
+type(time_step_31, (time_step,)).
+type(time_step_32, (time_step,)).
+type(time_step_33, (time_step,)).
+type(time_step_34, (time_step,)).
+type(time_step_35, (time_step,)).
+type(time_step_36, (time_step,)).
+type(time_step_37, (time_step,)).
+type(time_step_38, (time_step,)).
+type(time_step_39, (time_step,)).
+type(time_step_40, (time_step,)).
+type(time_step_41, (time_step,)).
+type(time_step_42, (time_step,)).
+type(time_step_43, (time_step,)).
+type(time_step_44, (time_step,)).
+type(time_step_45, (time_step,)).
+type(time_step_46, (time_step,)).
+type(time_step_47, (time_step,)).
+type(time_step_48, (time_step,)).
+type(time_step_49, (time_step,)).
+type(time_step_50, (time_step,)).
+type(time_step_9, (time_step,)).
+type(true_cell,(ex,mypos,mypos,cell_type)).
+type(true_step,(ex,time_step)).
 
-:-
-	clause(C),
-	#count{V : var_type(C,V,ex)} != 1.
-
-body_pred(P,1):-
-	constant(P,_).
-
-type(P,(T,)):-
-	constant(P,T).
+:- clause(C), #count{V : var_type(C,V,ex)} != 1.
