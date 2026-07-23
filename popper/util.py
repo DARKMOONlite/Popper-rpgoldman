@@ -37,9 +37,6 @@ def parse_args():
     parser.add_argument('--max-body', type=int, default=None, help=f'Maximum number of body literals allowed in rule (default: {MAX_BODY})')
     parser.add_argument('--max-vars', type=int, default=None, help=f'Maximum number of variables allowed in rule (default: {MAX_VARS})')
     parser.add_argument('--nuwls', default=False, action='store_true', help='Use nuwls solver (default: False)')
-    parser.add_argument('--size-weight', type=int, default=1, help='Weight of the program size in the MDL cost function (default: 1, noisy mode only)')
-    parser.add_argument('--fn-weight', type=int, default=1, help='Weight of false negatives in the MDL cost function; increase to favour recall/general programs (default: 1, noisy mode only)')
-    parser.add_argument('--fp-weight', type=int, default=1, help='Weight of false positives in the MDL cost function; increase to favour precision/specific programs (default: 1, noisy mode only)')
     parser.add_argument('-v', action='count', default=1, dest='verbosity', help='Increase verbosity (-v, -vv, or -vvv)')
     parser.add_argument('-j', dest='joiner', default=False, action='store_true', help=argparse.SUPPRESS)
     return parser.parse_args()
@@ -108,12 +105,8 @@ def rule_is_invented(rule):
     head_pred, _head_arg = head
     return head_pred.startswith('inv')
 
-def ceil_div(a: int, b: int) -> int:
-    # ceiling of a / b for integers, b > 0 (works for negative a too)
-    return -(-a // b)
-
-def mdl_score(fn, fp, size, fn_weight=1, fp_weight=1, size_weight=1):
-    return fn_weight * fn + fp_weight * fp + size_weight * size
+def mdl_score(fn, fp, size):
+    return fn + fp + size
 
 def get_body_preds(solver):
     body_preds_ = set()
@@ -138,17 +131,7 @@ class Settings:
         settings = Settings(**conf)
         return settings
 
-    def __init__(self, timeout=TIMEOUT, max_body=MAX_BODY, max_vars=MAX_VARS, ex_file=None, bk_file=None, bias_file=None, noisy=False, nuwls=None, anytime_timeout=ANYTIME_TIMEOUT, verbosity=1, joiner=False, all_opt=False, size_weight=1, fn_weight=1, fp_weight=1, max_body_override=False, max_vars_override=False, **kwargs):
-
-        # weights of the MDL cost function: size_weight*size + fn_weight*fn + fp_weight*fp (noisy mode only).
-        # must be positive integers: the cost is fed to integer (Max)SAT/CP solvers and the search-pruning
-        # bounds divide by these weights (see ceil_div usages in tester/loop/state).
-        for name, value in (('size_weight', size_weight), ('fn_weight', fn_weight), ('fp_weight', fp_weight)):
-            if not isinstance(value, int) or value < 1:
-                raise ValueError(f'{name} must be a positive integer, got {value!r}')
-        self.size_weight = size_weight
-        self.fn_weight = fn_weight
-        self.fp_weight = fp_weight
+    def __init__(self, timeout=TIMEOUT, max_body=MAX_BODY, max_vars=MAX_VARS, ex_file=None, bk_file=None, bias_file=None, noisy=False, nuwls=None, anytime_timeout=ANYTIME_TIMEOUT, verbosity=1, joiner=False, all_opt=False, max_body_override=False, max_vars_override=False, **kwargs):
 
         self.all_opt = all_opt
         self.joiner = joiner
@@ -568,8 +551,7 @@ def print_incomplete_solution(prog, size, conf_matrix, settings, noisy: bool):
     logger.out('*'*20)
     logger.out('New best hypothesis:')
     if noisy:
-        mdl = mdl_score(fn, fp, size, settings.fn_weight, settings.fp_weight, settings.size_weight)
-        logger.out(f'tp:{tp} fn:{fn} tn:{tn} fp:{fp} size:{size} mdl:{mdl}')
+        logger.out(f'tp:{tp} fn:{fn} tn:{tn} fp:{fp} size:{size} mdl:{size+fn+fp}')
     else:
         logger.out(f'tp:{tp} fn:{fn} tn:{tn} fp:{fp} size:{size}')
     for rule in order_prog(prog):
@@ -587,8 +569,7 @@ def print_prog_score(prog, score, settings, noisy: bool):
         recall = f'{tp / (tp+fn):0.2f}'
     logger.out('*'*10 + ' SOLUTION ' + '*'*10)
     if noisy:
-        mdl = mdl_score(fn, fp, size, settings.fn_weight, settings.fp_weight, settings.size_weight)
-        logger.out(f'Precision:{precision} Recall:{recall} TP:{tp} FN:{fn} TN:{tn} FP:{fp} Size:{size} MDL:{mdl}')
+        logger.out(f'Precision:{precision} Recall:{recall} TP:{tp} FN:{fn} TN:{tn} FP:{fp} Size:{size} MDL:{size+fn+fp}')
     else:
         logger.out(f'Precision:{precision} Recall:{recall} TP:{tp} FN:{fn} TN:{tn} FP:{fp} Size:{size}')
     for rule in order_prog(prog):
