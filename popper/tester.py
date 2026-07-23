@@ -3,7 +3,7 @@ from importlib import resources
 from janus_swi import query_once, consult
 from functools import cache, lru_cache
 from contextlib import contextmanager
-from . util import order_prog, prog_is_recursive, rule_is_recursive, calc_rule_size, calc_prog_size, get_raw_prog, format_rule, Literal, mdl_score, order_rule, canonicalise_prog_hash
+from . util import order_prog, prog_is_recursive, rule_is_recursive, calc_rule_size, calc_prog_size, get_raw_prog, format_rule, Literal, mdl_score, ceil_div, order_rule, canonicalise_prog_hash
 from . bkcons import deduce_neg_example_recalls
 from bitarray import frozenbitarray
 from bitarray.util import ones, zeros
@@ -190,7 +190,7 @@ class Tester():
         if not too_few_tp:
             fp = neg_covered.count(1)
             tn = self.num_neg - fp
-            mdl = mdl_score(fn, fp, prog_size)
+            mdl = mdl_score(fn, fp, prog_size, self.settings.fn_weight, self.settings.fp_weight, self.settings.size_weight)
 
         return TestResult(
             tp=tp,
