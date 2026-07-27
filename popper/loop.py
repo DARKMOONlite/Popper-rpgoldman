@@ -582,7 +582,10 @@ class Popper():
 
                 if add_to_combiner and not settings.noisy and not settings.solution_found and not settings.recursion_enabled:
 
-                    if any_and(uncovered, pos_covered):
+                    if any_and(uncovered, pos_covered) and (
+                        not settings.solution # if a solution hasn't been found yet, we can combine programs of any size
+                        or len(settings.solution | prog) <= settings.max_rules # if a solution has been found, we can only combine programs that will not exceed the maximum number of rules
+                    ):
 
                         if settings.solution:
                             settings.solution = settings.solution | prog

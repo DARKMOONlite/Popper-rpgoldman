@@ -2,6 +2,7 @@
 from . util import calc_prog_size, reduce_prog, prog_is_recursive, prog_has_invention, calc_rule_size, rule_is_recursive, format_prog
 from collections import defaultdict
 from . import maxsat
+from pysat.card import CardEnc
 from pysat.formula import IDPool
 import time
 import bitarray
@@ -125,6 +126,15 @@ class Combiner:
                     clause = [-pvar, var]
                     encoding.append(clause)
                     program_clauses[program_count].append(clause)
+                    
+        # added an additional constraint 
+        encoding.extend(
+            CardEnc.atmost( # ensures that the number of rules used does not exceed the maximum allowed. Uses this idea as a contraint to limit the number of rules in the final program. 
+                lits=list(rule_var.values()), 
+                bound=self.settings.max_rules,
+                vpool=vpool,
+            ).clauses
+        )
 
         if self.settings.lex and self.settings.recursion_enabled:
             encoding.append([rule_var[rule_id] for rule_id in base_rules])
