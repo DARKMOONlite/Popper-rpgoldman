@@ -1,6 +1,6 @@
 import os
 from importlib import resources
-from janus_swi import query_once, consult
+from janus_swi import TruthVal, query, query_once as janus_query_once, consult
 from functools import cache, lru_cache
 from contextlib import contextmanager
 from . util import order_prog, prog_is_recursive, rule_is_recursive, calc_rule_size, calc_prog_size, get_raw_prog, format_rule, Literal, mdl_score, order_rule, canonicalise_prog_hash
@@ -13,7 +13,9 @@ from typing import NamedTuple
 from . import logger
 import numpy as np
 from . compact_hash import CompactHashTable, IndexedInternPool
-
+import uuid 
+import tempfile
+import shutil
 # MAXIMUM TESTING TIME FOR A RECURSIVE HYPOTHESIS
 EVAL_TIMEOUT=0.001
 COMPACT_CACHE_EXPECTED_ENTRIES = 1_000_000
@@ -35,21 +37,29 @@ class TestResult(NamedTuple):
     too_few_tp: bool = False
     too_many_fp: bool = False
 
-def bool_query(query):
-    return query_once('term_string(_G, QStr), call(_G)', {'QStr': query})['truth']
+def query_once(query,inputs={},keep=False,truth_vals=TruthVal.PLAIN_TRUTHVALS,module_name=None):
+    """A wrapper function for janus_swi.query_once that formats the query string and passes the module name.
+    """
+    if module_name is None: # if no module name is provided, just call the original query_once function
+        return janus_query_once(query, inputs=inputs, keep=keep, truth_vals=truth_vals)
+    return janus_query_once(f"{module_name}:({query.strip().rstrip('.')})", inputs=inputs, keep=keep, truth_vals=truth_vals)
+
+
+def bool_query(query, module_name):
+    return query_once('term_string(_G, QStr), call(_G)', {'QStr': query}, module_name=module_name)['truth']
 
 @cache
 def format_literal_janus(literal):
     args = ','.join(f'_V{i}' for i in literal.arguments)
     return f'{literal.predicate}({args})'
 
-def rule_has_redundant_literal(rule):
+def rule_has_redundant_literal(rule,module_name=None):
     head, body = rule
     lits = tuple(format_literal_janus(lit) for lit in body)
     if head:
         lits = (f"not_{format_literal_janus(head)}",) + lits
     lits_str = f"[{','.join(lits)}]"
-    return query_once('redundant_literal_str(S)', {'S': lits_str})['truth']
+    return query_once('redundant_literal_str(S)', {'S': lits_str}, module_name=module_name)['truth']
 
 def frozen_bits_from_indices(size, indices):
     bits = zeros(size)
@@ -72,29 +82,46 @@ class Tester():
     def __init__(self, settings, state):
         self.settings = settings
         self.state = state
+        self.module_name = 'popper_tester_module_' + str(uuid.uuid4().int)
+        self.prog_file = f'{self.module_name}_prog'
+        
+        if not janus_query_once('use_module(library(modules))')['truth']:
+            raise Exception('library(modules) not loaded')
+        
+        if not janus_query_once(f'modules:prepare_temporary_module({self.module_name})')['truth']:
+            raise Exception(f'module {self.module_name} not created')
 
         bk_pl_path = self.settings.bk_file
         exs_pl_path = self.settings.ex_file
         test_pl_path = str(resources.files(__package__).joinpath("lp/test.pl"))
 
-        if not settings.pi_enabled:
-            consult('prog', f':- dynamic {settings.head_literal.predicate}/{len(settings.head_literal.arguments)}.')
+        if not self.settings.pi_enabled:
+            consult(
+                self.prog_file,
+                f':- dynamic {self.settings.head_literal.predicate}/{len(self.settings.head_literal.arguments)}.',
+                module=self.module_name,
+            )
 
-        for x in [exs_pl_path, bk_pl_path, test_pl_path]:
-            if os.name == 'nt': # if on Windows, SWI requires escaped directory separators
-                x = x.replace('\\', '\\\\')
-            logger.info(f'Consulting {x}')
-            consult(x)
+        # create temporary test_pl_file 
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pl") as tmp:
+            tmp.close()
+            shutil.copyfile(test_pl_path, tmp.name)
+            
+            for x in [exs_pl_path, bk_pl_path, tmp.name]:
+                if os.name == 'nt': # if on Windows, SWI requires escaped directory separators
+                    x = x.replace('\\', '\\\\')
+                logger.info(f'Consulting {x}')
+                consult(x,module=self.module_name) # this shouldn't be loaded into a module as otherwise other modules cant read these shared files
 
         logger.info(f'Loading examples')
-        query_once('load_examples')
+        query_once('load_examples', module_name=self.module_name)
 
         neg_literal = Literal('neg_fact', tuple(range(len(self.settings.head_literal.arguments))))
         self.neg_fact_str = format_literal_janus(neg_literal)
         self.neg_literal_set = frozenset([neg_literal])
 
         q = 'findall(_Atom2, (neg_index(_K, _Atom1), term_string(_Atom1, _Atom2)), S)'
-        res = query_once(q)['S']
+        res = query_once(q, module_name=self.module_name)['S']
         atoms = []
         for x in res:
             x = x[:-1].split('(')[1].split(',')
@@ -108,8 +135,8 @@ class Tester():
                 print(e)
 
         logger.info(f'Determining number of examples')
-        self.num_pos = query_once('findall(_K, pos_index(_K, _Atom), _S), length(_S, N)')['N']
-        self.num_neg = query_once('findall(_K, neg_index(_K, _Atom), _S), length(_S, N)')['N']
+        self.num_pos = query_once('findall(_K, pos_index(_K, _Atom), _S), length(_S, N)', module_name=self.module_name)['N']
+        self.num_neg = query_once('findall(_K, neg_index(_K, _Atom), _S), length(_S, N)', module_name=self.module_name)['N']
 
         self.pos_examples_ = ones(self.num_pos)
         self.empty_pos_covered = frozenbitarray(self.num_pos)
@@ -120,7 +147,18 @@ class Tester():
         self._intern_pool = IndexedInternPool()
 
         if self.settings.recursion_enabled:
-            query_once(f'assert(timeout({EVAL_TIMEOUT})), fail')
+            query_once(f'assert(timeout({EVAL_TIMEOUT})), fail', module_name=self.module_name)
+
+    def __del__(self):
+        self.clear_janus_cache()
+        if not janus_query_once('modules:destroy_module(Module)', {'Module': self.module_name})['truth']:
+            raise RuntimeError(f'module {self.module_name} not destroyed')
+
+    @staticmethod
+    def clear_janus_cache():
+        janus_query_once(
+            'retractall(janus:py_call_cache(_String, _Input, _TV, _M, _Goal, _Dict, _Truth, _OutVars))'
+        )
 
     # main entry point for calling prolog without noise and we call this method for every program
     def test_prog(self, prog, prog_size=None):
@@ -168,7 +206,7 @@ class Tester():
                 if self.num_neg > 0:
                     (rule,) = prog
                     atom_str, body_str = self.parse_rule(rule)
-                    neg_covered = query_once('find_neg_firstn(K, R, S)', {'K': max_k_neg, 'R': f'{atom_str}:-{body_str}'})['S']
+                    neg_covered = query_once('find_neg_firstn(K, R, S)', {'K': max_k_neg, 'R': f'{atom_str}:-{body_str}'}, module_name=self.module_name)['S']
                 neg_covered = frozen_bits_from_indices(self.num_neg, neg_covered)
                 if neg_covered.count(1) == max_k_neg:
                     too_many_fp = True
@@ -219,16 +257,16 @@ class Tester():
             (rule,) = prog
             atom_str, body_str = self.parse_rule(rule)
             q = f'neg_index(_ID, {atom_str}), {body_str}'
-            res = bool_query(q)
+            res = bool_query(q, module_name=self.module_name)
         else:
             with self.using(prog):
-                res = bool_query("inconsistent")
+                res = bool_query("inconsistent", module_name=self.module_name)
 
         self.compact_prog_inconsistent[prog_hash] = int(res)
         return res
 
     def is_body_sat(self, body):
-        return bool_query(self.parse_body(body))
+        return bool_query(self.parse_body(body), module_name=self.module_name)
 
     # used by the unsat core checker to see if a rule is satisfiable
     def is_sat(self, prog):
@@ -245,18 +283,18 @@ class Tester():
             _, ordered_body = self.parse_rule(rule)
 
             if self.settings.noisy:
-                return query_once('pos_succeeds_k(R, K)', {'R': f'{head_str}:-{ordered_body}', 'K': calc_rule_size(rule)})['truth']
+                return query_once('pos_succeeds_k(R, K)', {'R': f'{head_str}:-{ordered_body}', 'K': calc_rule_size(rule)}, module_name=self.module_name)['truth']
             else:
                 if self.state.min_pos_coverage == 1:
-                    return bool_query(f'pos_index(_ID, {head_str}),{ordered_body}')
+                    return bool_query(f'pos_index(_ID, {head_str}),{ordered_body}',module_name=self.module_name)
                 else:
-                    return query_once('pos_succeeds_k(R, K)', {'R': f'{head_str}:-{ordered_body}', 'K': self.state.min_pos_coverage})['truth']
+                    return query_once('pos_succeeds_k(R, K)', {'R': f'{head_str}:-{ordered_body}', 'K': self.state.min_pos_coverage}, module_name=self.module_name)['truth']
         else:
             with self.using(prog):
                 if self.settings.noisy:
-                    return query_once(f'covers_at_least_k_pos(K)',{'K':calc_prog_size(prog)})['truth']
+                    return query_once(f'covers_at_least_k_pos(K)',{'K':calc_prog_size(prog)}, module_name=self.module_name)['truth']
                 else:
-                    return bool_query('sat')
+                    return bool_query('sat', module_name=self.module_name)
 
     # called by the allsat code
     # tries to determine whether literal is implied by body for the negative examples
@@ -265,19 +303,19 @@ class Tester():
         body_str = self.parse_body(body.union(self.neg_literal_set))
         literal_str = format_literal_janus(literal)
         q = f'{body_str}, \\+ {literal_str}'
-        return not bool_query(q)
+        return not bool_query(q, module_name=self.module_name)
 
     # called by the allsat code
     # checks whether a literal is implied by the body
     def is_literal_redundant(self, body, literal):
         q = f'{self.parse_body(body)}, \\+ {format_literal_janus(literal)}'
-        return not bool_query(q)
+        return not bool_query(q, module_name=self.module_name)
 
     # also called by the allsat code
     def diff_subs_single(self, literal):
         literal_str = format_literal_janus(literal)
         q = f'{self.neg_fact_str}, \\+ {literal_str}'
-        return not bool_query(q)
+        return not bool_query(q, module_name=self.module_name)
 
     # ONLY CALLED BY THE COMBINER WHEN THERE IS MORE THAN ONE RULE
     # also called internally by test_prog_noisy
@@ -296,10 +334,10 @@ class Tester():
         if len(prog) == 1:
             (rule,) = prog
             atom_str, body_str = self.parse_rule(rule)
-            pos_covered = query_once('find_pos_covered(R, S)', {'R': f'{atom_str}:-{body_str}'})['S']
+            pos_covered = query_once('find_pos_covered(R, S)', {'R': f'{atom_str}:-{body_str}'}, module_name=self.module_name)['S']
         else:
             with self.using(prog):
-                pos_covered = query_once('pos_covered(S)')['S']
+                pos_covered = query_once('pos_covered(S)', module_name=self.module_name)['S']
 
         if not pos_covered:
             idx = self._intern_pool.intern(self.empty_pos_covered)
@@ -317,10 +355,10 @@ class Tester():
         if len(prog) == 1:
             (rule,) = prog
             atom_str, body_str = self.parse_rule(rule)
-            neg_covered = query_once('find_neg_covered(R, S)', {'R': f'{atom_str}:-{body_str}'})['S'] if self.num_neg > 0 else []
+            neg_covered = query_once('find_neg_covered(R, S)', {'R': f'{atom_str}:-{body_str}'}, module_name=self.module_name)['S'] if self.num_neg > 0 else []
         else:
             with self.using(prog):
-                neg_covered = query_once('neg_covered(S2)')['S2']
+                neg_covered = query_once('neg_covered(S2)', module_name=self.module_name)['S2']
         
         if not neg_covered:
             return self.empty_neg_covered
@@ -328,7 +366,7 @@ class Tester():
         return frozen_bits_from_indices(self.num_neg, neg_covered)
 
     def has_redundant_literal(self, prog):
-        return any(rule_has_redundant_literal(rule) for rule in prog)
+        return any(rule_has_redundant_literal(rule, module_name=self.module_name) for rule in prog)
 
     @contextmanager
     def using(self, prog):
@@ -351,19 +389,17 @@ class Tester():
                 str_prog.append(f':- dynamic {p}/{a}')
 
         str_prog = '.\n'.join(str_prog) +'.'
-        consult('prog', str_prog)
+        consult(self.prog_file, str_prog, module=self.module_name)
         yield
         for predicate, arity in current_clauses:
             args = ','.join(['_'] * arity)
-            query_once(f"retractall({predicate}({args}))")
+            query_once(f"retractall({predicate}({args}))", module_name=self.module_name)
 
     def reduce_inconsistent(self, program):
         if len(program) < 3:
             return program
         for rule in program:
-            subprog = program - {rule}
-        # for i in range(len(program)):
-            # subprog = program[:i] + program[i+1:]
+            subprog = [r for r in program if r != rule]
             if not prog_is_recursive(subprog):
                 continue
             with self.using(subprog):
@@ -394,7 +430,7 @@ class Tester():
 
         for p, pa in settings.body_preds:
             try:
-                if not query_once(f'current_predicate({p}/{pa})')['truth']:
+                if not query_once(f'current_predicate({p}/{pa})', module_name=self.module_name)['truth']:
                     pointless.add((p, pa))
                     missing.add(p)
             except Exception as Err:
@@ -416,7 +452,7 @@ class Tester():
             arg_str = ','.join(f'_V{i}' for i in range(pa))
             query = f'({p}({arg_str}), \\+ {q}({arg_str})) ; ({q}({arg_str}), \\+ {p}({arg_str}))'
             try:
-                if query_once(query)['truth']:
+                if query_once(query, module_name=self.module_name)['truth']:
                     continue
             except Exception as Err:
                 print('ERROR detecting pointless relations', Err)
