@@ -1,3 +1,4 @@
+
 # Popper
 
 Popper is an [inductive logic programming](https://arxiv.org/pdf/2008.07912.pdf) system. Popper combines logical reasoning with machine learning to induce rules from examples and background knowledge.
@@ -5,6 +6,15 @@ Popper is an [inductive logic programming](https://arxiv.org/pdf/2008.07912.pdf)
 If you use Popper, please cite the paper [Learning programs by learning from failures](https://arxiv.org/abs/2005.02259) (MLJ 2021).
 
 If you have any questions, ask us on [Discord](https://discord.gg/Rv5mQCayAp) or email [Andrew Cropper](mailto:andrew.cropper@helsinki.fi).
+
+## The fix-max-rules branch:
+- This branch attempts to fix an issue with `@rpgoldman`'s [Popper](https://github.com/rpgoldman/Popper) `modular-swi-branch` for running Popper concurrently, where the system would generate multiple rules when only 1 is provided and recursion is turned off.
+- It also fixes some performance issues with rpgoldman's popper which helps run experiments with large bk files more quickly, (4x speedup)
+- Note: these changes have probably already been incorporated into the main [Popper repo](https://github.com/logic-and-learning-lab/Popper)
+
+
+
+
 
 #### Requirements
 - [SWI-Prolog](https://www.swi-prolog.org) (9.2.0 or above)
