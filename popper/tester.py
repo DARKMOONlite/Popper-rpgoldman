@@ -149,16 +149,6 @@ class Tester():
         if self.settings.recursion_enabled:
             query_once(f'assert(timeout({EVAL_TIMEOUT})), fail', module_name=self.module_name)
 
-    def __del__(self):
-        self.clear_janus_cache()
-        if not janus_query_once('modules:destroy_module(Module)', {'Module': self.module_name})['truth']:
-            raise RuntimeError(f'module {self.module_name} not destroyed')
-
-    @staticmethod
-    def clear_janus_cache():
-        janus_query_once(
-            'retractall(janus:py_call_cache(_String, _Input, _TV, _M, _Goal, _Dict, _Truth, _OutVars))'
-        )
 
     # main entry point for calling prolog without noise and we call this method for every program
     def test_prog(self, prog, prog_size=None):
